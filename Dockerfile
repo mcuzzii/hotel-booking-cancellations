@@ -9,7 +9,7 @@ ENV UV_LINK_MODE=copy
 
 COPY pyproject.toml uv.lock ./
 
-RUN uv sync --frozen
+RUN uv sync --frozen --no-install-project
 
 RUN uv run python -m ipykernel install \
     --sys-prefix \
