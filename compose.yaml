@@ -1,0 +1,15 @@
+services:
+  pydev:
+    build: .
+    container_name: pydev
+    working_dir: /project
+
+    ports:
+      - "127.0.0.1:8888:8888"
+
+    volumes:
+      - .:/project
+      - venv:/project/.venv
+
+volumes:
+  venv:
