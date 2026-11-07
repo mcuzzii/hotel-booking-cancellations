@@ -15,5 +15,3 @@ RUN uv run python -m ipykernel install \
     --sys-prefix \
     --name pydev \
     --display-name "Python (Docker)"
-
-CMD ["sleep", "infinity"]

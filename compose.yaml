@@ -10,6 +10,8 @@ services:
     volumes:
       - .:/project
       - venv:/project/.venv
+    
+    command: sleep infinity
 
 volumes:
   venv:

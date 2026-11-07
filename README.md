@@ -1,3 +1,9 @@
+## Downloading the Dataset
+
+```bash
+make download
+```
+
 ## Running the Notebook
 
 ### Prerequisites
@@ -31,7 +37,7 @@ This builds the Python environment and installs all dependencies using uv.
 make notebook
 ```
 
-Keep this terminal running. Copy the authenticated URL printed in the terminal.
+Keep this terminal running. Copy the authenticated URL printed in the terminal. Press Ctrl/Cmd+D to end the session.
 
 ### 4. Connect VS Code
 

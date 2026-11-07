@@ -1,4 +1,4 @@
-.PHONY: up down notebook shell build
+.PHONY: up down notebook download shell build
 
 build:
 	docker compose build
@@ -10,11 +10,14 @@ down:
 	docker compose down
 
 notebook:
-	docker compose exec app uv run jupyter server \
+	docker compose exec pydev uv run jupyter server \
 		--ip=0.0.0.0 \
 		--port=8888 \
 		--no-browser \
 		--allow-root
 
+download:
+	docker compose exec pydev uv run src/download.py
+
 shell:
-	docker compose exec app bash
+	docker compose exec pydev bash
