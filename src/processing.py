@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.ticker import PercentFormatter
@@ -38,21 +39,48 @@ def get_summary(
     groups: str,
     target: str,
     no_prop: bool = False,
+    categories: list | None = None,
+    other: str | None = None,
     ci: float = 95
 ):
+
+    if categories:
+        categories_mask = (
+            df[feature].isin(categories)
+            | (
+                df[feature].isna()
+                if 'Missing' in categories
+                else False
+            )
+        )
+
     summary = (
-        df
+        (
+            (
+                df.assign(**{feature: df[feature].where(categories_mask, other)})
+                if other
+                else df.loc[categories_mask]
+            )
+            if categories
+            else df
+        )
         .groupby([feature, groups], dropna=False)
         .agg(
             n=(target, 'size'),
             k=(target, 'sum')
         )
+        .assign(n_total=lambda d: d.groupby(level=feature)['n'].sum())
     )
 
     if no_prop:
         return summary
 
     summary = get_prop_summary(summary, ci)
+    summary = summary.sort_values(by='n_total', ascending=False)
+
+    if other:
+        other_mask = summary.index.get_level_values(feature) == other
+        summary = pd.concat([summary.loc[~other_mask], summary.loc[other_mask]])
 
     return summary
 
@@ -95,16 +123,39 @@ def grouped_barplot(
     legend_title: str | None = None,
     feature_ax_title: str | None = None,
     target_ax_title: str | None = None,
+    categories: list | None = None,
+    other: str | None = None,
     ci: float = 95
 ):
 
-    summary = get_summary(df, feature, groups, target, ci=ci)
+    summary = get_summary(
+        df,
+        feature,
+        groups,
+        target,
+        categories=categories,
+        other=other,
+        ci=ci
+    )
+
+    summary.index = pd.MultiIndex.from_arrays(
+        [
+            summary.index
+            .get_level_values(i)
+            .astype(str)
+            .to_series()
+            .fillna('Missing')
+            .to_numpy()
+            for i in range(summary.index.nlevels)
+        ],
+        names=summary.index.names
+    )
 
     plot_data = summary.reset_index()
     hue_order = plot_data[groups].drop_duplicates()
 
     ax = sns.barplot(
-        data=summary,
+        data=plot_data,
         x='prop',
         y=feature,
         hue=groups,
@@ -126,7 +177,10 @@ def grouped_barplot(
             ax.errorbar(
                 x=bar.get_width(),
                 y=bar.get_y() + bar.get_height() / 2,
-                xerr=[[row['prop'] - row['lower']], [row['upper'] - row['prop']]],
+                xerr=[
+                    [np.clip(row['prop'] - row['lower'], 0, 1)],
+                    [np.clip(row['upper'] - row['prop'], 0, 1)]
+                ],
                 fmt='none',
                 color='#444444',
                 capsize=0
@@ -172,7 +226,11 @@ def grouped_lineplot(
     ).reset_index().sort_values(by=feature)
 
     if rolling_period is not None and rolling_period > 0:
-        summary[['n', 'k']] = summary.groupby(groups)[['n', 'k']].transform(lambda s: s.rolling(rolling_period).sum())
+        summary[['n', 'k']] = (
+            summary
+            .groupby(groups)[['n', 'k']]
+            .transform(lambda s: s.rolling(rolling_period).sum())
+        )
         summary = get_prop_summary(summary, ci)
 
     ax = sns.lineplot(
