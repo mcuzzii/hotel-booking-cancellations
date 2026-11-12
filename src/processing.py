@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
-from matplotlib.ticker import PercentFormatter
+from matplotlib.ticker import FuncFormatter, PercentFormatter
 import matplotlib.dates as mdates
 import seaborn as sns
 from statsmodels.stats.proportion import proportion_confint
@@ -93,7 +93,7 @@ def plot_labels(
     legend_title: str | None = None,
     feature_ax_title: str | None = None,
     target_ax_title: str | None = None,
-    rolling_period: int | None = None,
+    rolling_interval_width: int | None = None,
     switch_axes: bool = False
 ):
 
@@ -106,8 +106,8 @@ def plot_labels(
     if not title:
         title = f"Rates of '{clean_text(target)}' by '{clean_text(feature)}'"
 
-    if rolling_period is not None and rolling_period > 0:
-        legend_title = f"{legend_title} ({rolling_period}-point Rolling %)"
+    if rolling_interval_width is not None and rolling_interval_width > 0:
+        legend_title = f"{legend_title} ({rolling_interval_width}-point Rolling %)"
 
     ax.set_title(title)
     ax.get_legend().set_title(legend_title)
@@ -202,6 +202,34 @@ def grouped_barplot(
 
     plt.show()
 
+def get_rolling_sums(
+    summary: pd.DataFrame,
+    feature: str,
+    rolling_interval_width: int,
+    datetime_unit: str,
+    ci: float
+):
+
+    n_cumsum = np.cumsum(summary['n'].to_numpy())
+    k_cumsum = np.cumsum(summary['k'].to_numpy())
+
+    idx = (
+        getattr((summary[feature] - summary[feature].min()).dt, datetime_unit)
+        if str(summary[feature].dtype).startswith('datetime64')
+        else summary[feature]
+    )
+
+    lb_idx = np.searchsorted(idx, idx - rolling_interval_width, 'right') - 1
+    lb_idx_clipped = np.clip(lb_idx, 0, None)
+    lb_mask = lb_idx >= 0
+
+    summary['n'] = n_cumsum - np.where(lb_mask, n_cumsum[lb_idx_clipped], 0)
+    summary['k'] = k_cumsum - np.where(lb_mask, k_cumsum[lb_idx_clipped], 0)
+
+    summary = get_prop_summary(summary, ci)
+
+    return summary 
+
 def grouped_lineplot(
     df: pd.DataFrame,
     feature: str,
@@ -211,9 +239,11 @@ def grouped_lineplot(
     legend_title: str | None = None,
     feature_ax_title: str | None = None,
     target_ax_title: str | None = None,
-    rolling_period: int | None = None,
+    rolling_interval_width: int | None = None,
+    datetime_unit: str | None = None,
     ci: float = 95,
     remove_year: bool = False,
+    custom_labels: dict | None = None,
     xlim: tuple | None = None
 ):
     summary = get_summary(
@@ -221,17 +251,19 @@ def grouped_lineplot(
         feature,
         groups,
         target,
-        no_prop=rolling_period is not None and rolling_period > 0,
+        no_prop=rolling_interval_width is not None and rolling_interval_width > 0,
         ci=ci
-    ).reset_index().sort_values(by=feature)
+    ).reset_index().sort_values(by=feature, ignore_index=True)
 
-    if rolling_period is not None and rolling_period > 0:
-        summary[['n', 'k']] = (
-            summary
-            .groupby(groups)[['n', 'k']]
-            .transform(lambda s: s.rolling(rolling_period).sum())
-        )
-        summary = get_prop_summary(summary, ci)
+    if rolling_interval_width is not None and rolling_interval_width > 0:
+
+        summary = summary.groupby(groups).apply(
+            get_rolling_sums,
+            feature=feature,
+            rolling_interval_width=rolling_interval_width,
+            datetime_unit=datetime_unit,
+            ci=ci
+        ).reset_index()
 
     ax = sns.lineplot(
         summary,
@@ -258,7 +290,7 @@ def grouped_lineplot(
         legend_title,
         feature_ax_title,
         target_ax_title,
-        rolling_period=rolling_period
+        rolling_interval_width=rolling_interval_width
     )
 
     if xlim:
@@ -269,6 +301,11 @@ def grouped_lineplot(
 
     if remove_year:
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+
+    if custom_labels:
+        ax.xaxis.set_major_formatter(
+            FuncFormatter(lambda x, _: custom_labels.get(x, str(x)))
+        )
     
     ax.yaxis.set_major_formatter(PercentFormatter(xmax=1))
     sns.despine(ax=ax)
