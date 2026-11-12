@@ -29,9 +29,17 @@ cd hotel-booking-cancellations
 make up
 ```
 
-This builds the Python environment and installs all dependencies using uv.
+This builds and starts the required docker containers.
 
-### 3. Start Jupyter Server
+### 3. Initialize dependencies
+
+```bash
+make initialize
+```
+
+This installs all dependencies and the Jupyter server.
+
+### 4. Start Jupyter Server
 
 ```bash
 make notebook
@@ -39,7 +47,7 @@ make notebook
 
 Keep this terminal running. Copy the authenticated URL printed in the terminal. Press Ctrl/Cmd+D to end the session.
 
-### 4. Connect VS Code
+### 5. Connect VS Code
 
 1. Open the cloned repository in VS Code.
 2. Open a notebook in `notebooks/`.
@@ -51,10 +59,21 @@ Select the `Python (Docker)` kernel if prompted.
 
 You can now execute notebook cells directly in VS Code.
 
-### 5. Stop the environment
+### 6. Stop the environment
 
 ```bash
 make down
 ```
 
-Your notebooks and project files remain on your local filesystem. The Docker-managed Python environment persists in its named volume.
+You may need to close the Jupyter server first by pressing `Ctrl/Cmd+C`. Notebooks and project files remain on your local filesystem. The Docker-managed Python environment persists in its named volume.
+
+## Running a New Session
+
+Simply run the following; no need to re-initialize.
+
+```bash
+make up
+make notebook
+```
+
+End the session with `make down`.

@@ -1,7 +1,7 @@
 [project]
-name = "hotel-booking-cancellations"
+name = "project"
 version = "0.1.0"
-description = "Machine learning pipeline for hotel booking cancellation prediction."
+description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,7 +11,6 @@ dependencies = [
     "matplotlib>=3.11.2",
     "numpy>=2.5.4",
     "pandas>=3.1.1",
-    "scikit-learn>=1.9.1",
     "seaborn>=0.13.2",
     "statsmodels>=0.15.0",
 ]
