@@ -3,9 +3,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.ticker import FuncFormatter, PercentFormatter
+from matplotlib.patches import Patch
 import matplotlib.dates as mdates
 import seaborn as sns
 from statsmodels.stats.proportion import proportion_confint
+import itertools
 import re
 
 def clean_text(s: str):
@@ -311,3 +313,247 @@ def grouped_lineplot(
     sns.despine(ax=ax)
 
     plt.show()
+
+def grouped_stacked_barplot(
+    df: pd.DataFrame,
+    groups_name: str,
+    subgroups_name: str,
+    stacks_name: str,
+    hues_vars: list,
+    stacks_ordering: list | None = None
+):
+
+    num_hues_vars = len(hues_vars)
+
+    fig, axes = plt.subplots(
+        nrows=1,
+        ncols=num_hues_vars,
+        figsize=(6 * num_hues_vars, 8)
+    )
+    axes = np.atleast_1d(axes)
+
+    for g, (ax, hues), in enumerate(zip(axes, hues_vars)):
+
+        summary = (
+            df
+            .groupby([groups_name, subgroups_name, stacks_name], dropna=False)[hues]
+            .value_counts(normalize=True, dropna=False)
+            .rename('p')
+            .reset_index()
+        )
+
+        group_values = [
+            'NaN'
+            if pd.isna(x)
+            else x
+            for x in summary[groups_name].sort_values().unique()
+        ]
+        subgroup_values = [
+            'NaN'
+            if pd.isna(x)
+            else x 
+            for x in summary[subgroups_name].sort_values().unique()
+        ]
+        stack_values = [
+            'NaN'
+            if pd.isna(x)
+            else x
+            for x in summary[stacks_name].sort_values().unique()
+        ]
+        hue_values = [
+            'NaN'
+            if pd.isna(x)
+            else x
+            for x in summary[hues].sort_values().unique()
+        ]
+
+        summary = summary.fillna('NaN')
+
+        cmap = plt.colormaps['viridis']
+
+        hue_colors = {
+            h: cmap(int(256.0 * i / len(hue_values)))
+            for i, h in enumerate(hue_values)
+        }
+
+        stacks_ordered = [
+            m
+            for m in stacks_ordering
+            if m in stack_values
+        ]
+        stacks = stacks_ordered + [
+            m
+            for m in stack_values
+            if m not in stacks_ordered
+        ]
+        num_stacks = len(stacks)
+
+        y_indices = list(itertools.product(group_values, subgroup_values))
+
+        group_ticks = np.linspace(
+            1,
+            0,
+            2 * len(group_values),
+            endpoint=False
+        )
+
+        group_margin = 0.9 * (group_ticks[0] - group_ticks[1])
+        group_ticks = group_ticks[np.arange(len(group_values)) * 2 + 1]
+
+        subgroup_ticks = np.linspace(
+            group_ticks + group_margin,
+            group_ticks - group_margin,
+            2 * len(subgroup_values),
+            endpoint=False
+        )
+
+        subgroup_margin = 0.9 * (subgroup_ticks[0][0] - subgroup_ticks[1][0])
+        subgroup_ticks = subgroup_ticks[np.arange(len(subgroup_values)) * 2 + 1].T.flatten()
+
+        stack_ticks = np.linspace(
+            subgroup_ticks + subgroup_margin,
+            subgroup_ticks - subgroup_margin,
+            2 * num_stacks,
+            endpoint=False
+        )
+
+        stack_margin = stack_ticks[0][0] - stack_ticks[1][0]
+        stack_ticks = stack_ticks[np.arange(num_stacks) * 2 + 1]
+
+        for i, stack in enumerate(stacks):
+
+            left = np.zeros(len(y_indices))
+
+            for j, hue in enumerate(hue_values):
+
+                values = (
+                    summary.loc[
+                        (summary[stacks_name] == stack)
+                        & (summary[hues] == hue)
+                    ]
+                    .set_index([groups_name, subgroups_name])['p']
+                    .reindex(y_indices, fill_value=0)
+                )
+                    
+                ax.barh(
+                    y=stack_ticks[i],
+                    width=values,
+                    height=2 * stack_margin,
+                    left=left,
+                    color=hue_colors[hue]
+                )
+
+                left += values
+
+        if g == 0:
+            ax.set_yticks(stack_ticks.T.flatten())
+            ax.set_yticklabels(stacks * len(y_indices), size=5)
+        else:
+            ax.get_yaxis().set_visible(False)
+        
+        xlab = ax.set_xlabel('Composition')
+
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+
+        xlabel_y = (
+            ax
+            .transData
+            .inverted()
+            .transform_bbox(xlab.get_window_extent(renderer=renderer))
+            .y0
+        )
+
+        if g == 0:
+
+            ylabels_x = min(
+                (
+                    ax
+                    .transData
+                    .inverted()
+                    .transform_bbox(label.get_window_extent(renderer=renderer))
+                    .x0
+                )
+                for label in ax.get_yticklabels()
+                if label.get_visible()
+            )
+
+            for i, group in enumerate(group_values):
+
+                for j, canceled_status in enumerate(subgroup_values):
+
+                    text = ax.text(
+                        x=ylabels_x - 0.02,
+                        y=subgroup_ticks[2 * i + j],
+                        s=canceled_status,
+                        rotation=90,
+                        verticalalignment='center',
+                        horizontalalignment='right'
+                    )
+
+                fig.canvas.draw()
+                renderer = fig.canvas.get_renderer()
+
+                subgroup_labels_x = (
+                    ax
+                    .transData
+                    .inverted()
+                    .transform_bbox(text.get_window_extent(renderer=renderer))
+                    .x0
+                )
+
+                ax.text(
+                    x=subgroup_labels_x - 0.02,
+                    y=group_ticks[i],
+                    s=group,
+                    rotation=90,
+                    verticalalignment='center',
+                    horizontalalignment='right'
+                )
+
+        handles = [
+            Patch(facecolor=color, label=label)
+            for label, color in hue_colors.items()
+            if label in (
+                summary
+                .groupby(hues)['p']
+                .agg('mean')
+                .sort_values(ascending=False)
+                .head(5)
+                .index
+            )
+        ]
+
+        if len(hue_values) > 5:
+            handles.append(Patch(facecolor="none", edgecolor="none", label="..."))
+
+        ncols = len(handles)
+        ax_width = ax.get_window_extent(renderer).width
+
+        while ncols >= 1:
+
+            leg = ax.legend(
+                handles=handles,
+                loc='upper left',
+                bbox_to_anchor=(0, xlabel_y),
+                ncols=ncols,
+                frameon=True
+            )
+
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+
+            legend_width = leg.get_window_extent(renderer).width
+
+            if legend_width <= ax_width * 0.6:
+                break
+
+            ncols -= 1
+
+        ax.xaxis.set_major_formatter(PercentFormatter(xmax=1))
+        ax.set_title(hues)
+
+        sns.despine(ax=ax)
+        
+        fig.tight_layout()
+        fig.show()
