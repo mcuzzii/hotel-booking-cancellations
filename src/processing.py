@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.ticker import FuncFormatter, PercentFormatter
 from matplotlib.patches import Patch
+from matplotlib.artist import Artist
+from matplotlib.backend_bases import RendererBase
+from matplotlib.figure import Figure
 import matplotlib.dates as mdates
 import seaborn as sns
 from statsmodels.stats.proportion import proportion_confint
@@ -314,13 +317,81 @@ def grouped_lineplot(
 
     plt.show()
 
+def get_unique_sorted_values(
+    df: pd.DataFrame,
+    var: str,
+    fill_value: str | None = None
+):
+    
+    out = df[var].sort_values().unique()
+
+    if fill_value:
+        return [fill_value if pd.isna(x) else x for x in out]
+
+    return out
+
+def order_values(
+    vals: list,
+    order: list
+):
+    order_in_vals = [x for x in order if x in vals]
+    return order_in_vals + [x for x in vals if x not in order_in_vals]
+
+def get_group_ticks_and_margin(
+    centers: np.array,
+    margin: float,
+    num_ticks: int,
+    tick_margin_factor: float = 0.9,
+    flattened: bool = True
+):
+    
+    ticks = np.linspace(
+        centers + margin,
+        centers - margin,
+        2 * num_ticks,
+        endpoint=False
+    )[np.arange(num_ticks) * 2 + 1]
+
+    tick_margin = tick_margin_factor * (ticks[0][0] - ticks[1][0]) / 2
+
+    if flattened:
+        ticks = ticks.T.flatten()
+
+    return ticks, tick_margin
+
+def get_renderer(
+    fig: Figure
+):
+    fig.canvas.draw()
+    return fig.canvas.get_renderer()
+
+def get_bbox(
+    ax: Axes,
+    element: Artist,
+    renderer: RendererBase
+):
+    return (
+        ax
+        .transData
+        .inverted()
+        .transform_bbox(element.get_window_extent(renderer=renderer))
+    )
+
 def grouped_stacked_barplot(
     df: pd.DataFrame,
-    groups_name: str,
-    subgroups_name: str,
-    stacks_name: str,
+    groups_var: str,
+    subgroups_var: str,
+    stacks_var: str,
     hues_vars: list,
-    stacks_ordering: list | None = None
+    stacks_ordering: list | None = None,
+    hues_ordering: list | None = None,
+    width_per_plot: float = 6,
+    plot_height: float = 8,
+    fill_value: str | None = None,
+    margin_factor: float = 0.9,
+    stack_label_font_size: float = 5,
+    grouping_label_spacing: float = 0.02,
+    max_legend_items: int = 5
 ):
 
     num_hues_vars = len(hues_vars)
@@ -328,110 +399,74 @@ def grouped_stacked_barplot(
     fig, axes = plt.subplots(
         nrows=1,
         ncols=num_hues_vars,
-        figsize=(6 * num_hues_vars, 8)
+        figsize=(width_per_plot * num_hues_vars, plot_height)
     )
     axes = np.atleast_1d(axes)
 
-    for g, (ax, hues), in enumerate(zip(axes, hues_vars)):
+    for g, (ax, hues_var), in enumerate(zip(axes, hues_vars)):
 
         summary = (
             df
-            .groupby([groups_name, subgroups_name, stacks_name], dropna=False)[hues]
+            .groupby([groups_var, subgroups_var, stacks_var], dropna=False)[hues_var]
             .value_counts(normalize=True, dropna=False)
             .rename('p')
             .reset_index()
         )
 
-        group_values = [
-            'NaN'
-            if pd.isna(x)
-            else x
-            for x in summary[groups_name].sort_values().unique()
-        ]
-        subgroup_values = [
-            'NaN'
-            if pd.isna(x)
-            else x 
-            for x in summary[subgroups_name].sort_values().unique()
-        ]
-        stack_values = [
-            'NaN'
-            if pd.isna(x)
-            else x
-            for x in summary[stacks_name].sort_values().unique()
-        ]
-        hue_values = [
-            'NaN'
-            if pd.isna(x)
-            else x
-            for x in summary[hues].sort_values().unique()
-        ]
+        group_values = get_unique_sorted_values(summary, groups_var, fill_value)
+        subgroup_values = get_unique_sorted_values(summary, subgroups_var, fill_value)
+        stack_values = get_unique_sorted_values(summary, stacks_var, fill_value)
+        hue_values = get_unique_sorted_values(summary, hues_var, fill_value)
 
-        summary = summary.fillna('NaN')
+        summary = summary.fillna(fill_value)
 
+        if stacks_ordering:
+            stack_values = order_values(stack_values, stacks_ordering)
+        if hues_ordering[g]:
+            hue_values = order_values(hue_values, hues_ordering[g])
+        
+        num_stacks = len(stack_values)
+        
         cmap = plt.colormaps['viridis']
-
-        hue_colors = {
+        color_mapping = {
             h: cmap(int(256.0 * i / len(hue_values)))
             for i, h in enumerate(hue_values)
         }
 
-        stacks_ordered = [
-            m
-            for m in stacks_ordering
-            if m in stack_values
-        ]
-        stacks = stacks_ordered + [
-            m
-            for m in stack_values
-            if m not in stacks_ordered
-        ]
-        num_stacks = len(stacks)
-
         y_indices = list(itertools.product(group_values, subgroup_values))
 
-        group_ticks = np.linspace(
-            1,
-            0,
-            2 * len(group_values),
-            endpoint=False
+        group_ticks, group_margin = get_group_ticks_and_margin(
+            np.array([0.5]),
+            0.5,
+            len(group_values),
+            tick_margin_factor=margin_factor
+        )
+        subgroup_ticks, subgroup_margin = get_group_ticks_and_margin(
+            group_ticks,
+            group_margin,
+            len(subgroup_values),
+            tick_margin_factor=margin_factor
+        )
+        stack_ticks, stack_margin = get_group_ticks_and_margin(
+            subgroup_ticks,
+            subgroup_margin,
+            num_stacks,
+            tick_margin_factor=1,
+            flattened=False
         )
 
-        group_margin = 0.9 * (group_ticks[0] - group_ticks[1])
-        group_ticks = group_ticks[np.arange(len(group_values)) * 2 + 1]
-
-        subgroup_ticks = np.linspace(
-            group_ticks + group_margin,
-            group_ticks - group_margin,
-            2 * len(subgroup_values),
-            endpoint=False
-        )
-
-        subgroup_margin = 0.9 * (subgroup_ticks[0][0] - subgroup_ticks[1][0])
-        subgroup_ticks = subgroup_ticks[np.arange(len(subgroup_values)) * 2 + 1].T.flatten()
-
-        stack_ticks = np.linspace(
-            subgroup_ticks + subgroup_margin,
-            subgroup_ticks - subgroup_margin,
-            2 * num_stacks,
-            endpoint=False
-        )
-
-        stack_margin = stack_ticks[0][0] - stack_ticks[1][0]
-        stack_ticks = stack_ticks[np.arange(num_stacks) * 2 + 1]
-
-        for i, stack in enumerate(stacks):
+        for i, stack_value in enumerate(stack_values):
 
             left = np.zeros(len(y_indices))
 
-            for j, hue in enumerate(hue_values):
+            for j, hue_value in enumerate(hue_values):
 
                 values = (
                     summary.loc[
-                        (summary[stacks_name] == stack)
-                        & (summary[hues] == hue)
+                        (summary[stacks_var] == stack_value)
+                        & (summary[hues_var] == hue_value)
                     ]
-                    .set_index([groups_name, subgroups_name])['p']
+                    .set_index([groups_var, subgroups_var])['p']
                     .reindex(y_indices, fill_value=0)
                 )
                     
@@ -440,42 +475,27 @@ def grouped_stacked_barplot(
                     width=values,
                     height=2 * stack_margin,
                     left=left,
-                    color=hue_colors[hue]
+                    color=color_mapping[hue_value]
                 )
 
                 left += values
 
         if g == 0:
             ax.set_yticks(stack_ticks.T.flatten())
-            ax.set_yticklabels(stacks * len(y_indices), size=5)
+            ax.set_yticklabels(stack_values * len(y_indices), size=stack_label_font_size)
         else:
             ax.get_yaxis().set_visible(False)
         
         xlab = ax.set_xlabel('Composition')
 
-        fig.canvas.draw()
-        renderer = fig.canvas.get_renderer()
-
-        xlabel_y = (
-            ax
-            .transData
-            .inverted()
-            .transform_bbox(xlab.get_window_extent(renderer=renderer))
-            .y0
-        )
+        renderer = get_renderer(fig)
+        xlabel_y = get_bbox(ax, xlab, renderer).y0
 
         if g == 0:
 
             ylabels_x = min(
-                (
-                    ax
-                    .transData
-                    .inverted()
-                    .transform_bbox(label.get_window_extent(renderer=renderer))
-                    .x0
-                )
+                get_bbox(ax, label, renderer).x0
                 for label in ax.get_yticklabels()
-                if label.get_visible()
             )
 
             for i, group in enumerate(group_values):
@@ -483,7 +503,7 @@ def grouped_stacked_barplot(
                 for j, canceled_status in enumerate(subgroup_values):
 
                     text = ax.text(
-                        x=ylabels_x - 0.02,
+                        x=ylabels_x - grouping_label_spacing,
                         y=subgroup_ticks[2 * i + j],
                         s=canceled_status,
                         rotation=90,
@@ -491,19 +511,11 @@ def grouped_stacked_barplot(
                         horizontalalignment='right'
                     )
 
-                fig.canvas.draw()
-                renderer = fig.canvas.get_renderer()
-
-                subgroup_labels_x = (
-                    ax
-                    .transData
-                    .inverted()
-                    .transform_bbox(text.get_window_extent(renderer=renderer))
-                    .x0
-                )
+                renderer = get_renderer(fig)
+                subgroup_labels_x = get_bbox(ax, text, renderer).x0
 
                 ax.text(
-                    x=subgroup_labels_x - 0.02,
+                    x=subgroup_labels_x - grouping_label_spacing,
                     y=group_ticks[i],
                     s=group,
                     rotation=90,
@@ -513,18 +525,18 @@ def grouped_stacked_barplot(
 
         handles = [
             Patch(facecolor=color, label=label)
-            for label, color in hue_colors.items()
+            for label, color in color_mapping.items()
             if label in (
                 summary
-                .groupby(hues)['p']
+                .groupby(hues_var)['p']
                 .agg('mean')
                 .sort_values(ascending=False)
-                .head(5)
+                .head(max_legend_items)
                 .index
             )
         ]
 
-        if len(hue_values) > 5:
+        if len(hue_values) > max_legend_items:
             handles.append(Patch(facecolor="none", edgecolor="none", label="..."))
 
         ncols = len(handles)
@@ -540,9 +552,7 @@ def grouped_stacked_barplot(
                 frameon=True
             )
 
-            fig.canvas.draw()
-            renderer = fig.canvas.get_renderer()
-
+            renderer = get_renderer(fig)
             legend_width = leg.get_window_extent(renderer).width
 
             if legend_width <= ax_width * 0.6:
@@ -551,9 +561,13 @@ def grouped_stacked_barplot(
             ncols -= 1
 
         ax.xaxis.set_major_formatter(PercentFormatter(xmax=1))
-        ax.set_title(hues)
+        ax.set_title(clean_text(hues_var))
 
         sns.despine(ax=ax)
-        
+
+        fig.suptitle(
+            'Composition of Selected Features '
+            f'Segmented by {clean_text(stacks_var)}'
+        )
         fig.tight_layout()
         fig.show()
