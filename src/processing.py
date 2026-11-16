@@ -334,6 +334,7 @@ def order_values(
     vals: list,
     order: list
 ):
+    
     order_in_vals = [x for x in order if x in vals]
     return order_in_vals + [x for x in vals if x not in order_in_vals]
 
@@ -377,6 +378,11 @@ def get_bbox(
         .transform_bbox(element.get_window_extent(renderer=renderer))
     )
 
+def min_max_scale(
+    arr: np.array
+):
+    return (arr - arr.min()) / (arr.max() - arr.min())
+
 def grouped_stacked_barplot(
     df: pd.DataFrame,
     groups_var: str,
@@ -391,7 +397,8 @@ def grouped_stacked_barplot(
     margin_factor: float = 0.9,
     stack_label_font_size: float = 5,
     grouping_label_spacing: float = 0.02,
-    max_legend_items: int = 5
+    max_legend_items: int = 5,
+    legend_width_factor: float = 1
 ):
 
     num_hues_vars = len(hues_vars)
@@ -420,6 +427,8 @@ def grouped_stacked_barplot(
 
         summary = summary.fillna(fill_value)
 
+        hues_var_mean_props = df[hues_var].fillna(fill_value).value_counts(normalize=True)
+
         if stacks_ordering:
             stack_values = order_values(stack_values, stacks_ordering)
         if hues_ordering[g]:
@@ -429,8 +438,10 @@ def grouped_stacked_barplot(
         
         cmap = plt.colormaps['viridis']
         color_mapping = {
-            h: cmap(int(256.0 * i / len(hue_values)))
-            for i, h in enumerate(hue_values)
+            k: cmap(int(256 * v))
+            for k, v in min_max_scale(
+                hues_var_mean_props.reindex(hue_values).cumsum()
+            ).to_dict().items()
         }
 
         y_indices = list(itertools.product(group_values, subgroup_values))
@@ -527,9 +538,7 @@ def grouped_stacked_barplot(
             Patch(facecolor=color, label=label)
             for label, color in color_mapping.items()
             if label in (
-                summary
-                .groupby(hues_var)['p']
-                .agg('mean')
+                hues_var_mean_props
                 .sort_values(ascending=False)
                 .head(max_legend_items)
                 .index
@@ -555,7 +564,7 @@ def grouped_stacked_barplot(
             renderer = get_renderer(fig)
             legend_width = leg.get_window_extent(renderer).width
 
-            if legend_width <= ax_width * 0.6:
+            if legend_width <= ax_width * legend_width_factor:
                 break
 
             ncols -= 1
@@ -565,9 +574,9 @@ def grouped_stacked_barplot(
 
         sns.despine(ax=ax)
 
-        fig.suptitle(
-            'Composition of Selected Features '
-            f'Segmented by {clean_text(stacks_var)}'
-        )
-        fig.tight_layout()
-        fig.show()
+    fig.suptitle(
+        'Composition of Selected Features '
+        f'Segmented by {clean_text(stacks_var)}'
+    )
+    fig.tight_layout()
+    fig.show()
