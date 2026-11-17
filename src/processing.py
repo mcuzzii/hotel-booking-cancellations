@@ -390,7 +390,7 @@ def grouped_stacked_barplot(
     stacks_var: str,
     hues_vars: list,
     stacks_ordering: list | None = None,
-    hues_ordering: list | None = None,
+    hues_ordering: dict | None = None,
     width_per_plot: float = 6,
     plot_height: float = 8,
     fill_value: str | None = None,
@@ -431,8 +431,8 @@ def grouped_stacked_barplot(
 
         if stacks_ordering:
             stack_values = order_values(stack_values, stacks_ordering)
-        if hues_ordering[g]:
-            hue_values = order_values(hue_values, hues_ordering[g])
+        if hues_var in hues_ordering:
+            hue_values = order_values(hue_values, hues_ordering[hues_var])
         
         num_stacks = len(stack_values)
         
